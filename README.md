@@ -5,7 +5,7 @@ Turns messy **hotel booking request emails** into clean, validated booking recor
 
 - `extractor.py`: the schema, prompt, parser, validator, retry loop and fallback
 - `structured_extraction.ipynb`: demo on 8 sample emails, a deterministic failure-handling demo, and a summary (outputs saved)
-- `app.py` + `templates/index.html`: minimal local web demo (Flask)
+- `app.py` + `web/`: animated showcase page with a live backend (Flask), `showcase.py`: trace recorder + demo-data precompute
 
 ## Schema
 
@@ -63,18 +63,27 @@ pip install -r requirements.txt   # CPU-only torch via the extra index URL
 jupyter nbconvert --to notebook --execute --inplace structured_extraction.ipynb
 ```
 
-## Web demo
+## Showcase page
+
+An animated one-page walkthrough of the task (for demos): requirement cards, a step-by-step pipeline replay,
+results with charts, how it works, and limitations. Plain HTML/CSS/JS in `web/` with Chart.js from a CDN.
 
 ```bash
 python app.py        # then open http://127.0.0.1:5000
 ```
 
-Paste an email or pick a sample (clean, missing info, weird dates, spam) and press **Extract**. The page shows a status badge, the number of attempts, the final JSON, any validation errors, and the raw model output for each attempt.
-**Simulate broken output** replaces the model's answers with hand-made bad ones so you can see the error paths:
-- *first answer broken → retry*: the first answer contains no JSON, then the real model retries (`ok_after_retry`).
-- *all answers broken → fallback*: every answer is invalid JSON with wrong types, an unknown room type and an empty name, so the regex fallback fills the record (`fallback`).
+- **Instant mode (default):** six examples (clean email, missing info, weird dates, spam, broken output → retry,
+  broken output → fallback) replay from `web/demo_data.js`. The traces were precomputed with the real model, so no
+  waiting is needed. You can also open `web/index.html` directly, or host `web/` as a static site.
+- **Run live:** this toggle only appears when `app.py` is running. It sends the (editable) email to `POST /api/run`,
+  which runs the real pipeline (~10-30 s per model attempt on CPU).
+- **Regenerate the demo data** after changing the pipeline: `python showcase.py`. It runs the notebook's 8 emails
+  plus the two simulated-failure examples and records every attempt, repair and validation error.
 
-During testing, a broken answer that already contained wrong values (e.g. `"penthouse"`) was repeated by the 0.5B model on every retry. So the retry mode uses an answer with no values in it.
-On the "Missing info" sample, the retry also invented dates and a guest count.
+`showcase.py` wraps the LLM call around the unchanged `extractor.extract()` to record the trace.
+"Broken output → retry" corrupts the model's real first answer: it adds chatter and code fences, a trailing comma and
+`None`, and an invalid email. "Broken output → fallback" returns three hand-made bad answers.
+During testing, the 0.5B model could fix an invalid email after seeing the error. Swapped check-in/check-out dates or
+an odd room type it simply copied back on every retry, so the demo uses the email break.
 
 The model (~1 GB) is loaded from the Hugging Face cache, or downloaded on the first run.

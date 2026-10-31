@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Refinery</title>
+<meta name="description" content="Task 6 - a small local LLM turns messy hotel booking emails into validated JSON, with repair, retries and a rule-based fallback.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F1115'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='16' font-weight='700' fill='%23F59E0B' text-anchor='middle'%3E%7B%7D%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 1. Hero -->
+<header class="hero" id="top">
+  <div class="hero-bg" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <div class="hero-text">
+      <span class="badge-task">Task 6 · Structured LLM Extraction</span>
+      <h1>Data Refinery</h1>
+      <p class="lead">A small local LLM turns messy hotel booking emails into clean, schema-checked JSON. When it gets
+        something wrong, the answer is repaired, retried or rebuilt by rules.</p>
+      <a class="btn-primary" href="#demo" id="start">Start demo ↓</a>
+    </div>
+    <div class="hero-stage" id="heroStage" aria-hidden="true">
+      <div class="json-card" id="heroCard">
+        <div class="jc-head"><span></span><span></span><span></span><b>booking.json</b></div>
+        <div class="jc-body" id="heroRows"></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- 2. Requirements -->
+  <section class="section reveal" id="asks">
+    <p class="eyebrow">The brief</p>
+    <h2>What this task asks</h2>
+    <p class="section-sub">Each card is one requirement. Click a card to jump to the demo step that covers it. It gets a tick once the demo has shown it.</p>
+    <div class="req-grid" id="reqGrid"></div>
+  </section>
+
+  <!-- 3. Live demo -->
+  <section class="section reveal" id="demo">
+    <p class="eyebrow">Live demo</p>
+    <h2>Watch one email go through the refinery</h2>
+    <p class="section-sub">Pick an example. The results were precomputed with the real model, so they replay instantly.</p>
+
+    <div class="examples" id="examples"></div>
+
+    <div class="live-row hidden" id="liveRow">
+      <label class="switch"><input type="checkbox" id="liveToggle"><span class="slider"></span></label>
+      <span><b>Run live</b> - send the text below to the real model running in <code>app.py</code></span>
+      <button class="btn-primary small hidden" id="liveRun">Run live</button>
+      <span class="working hidden" id="working"><span class="spinner"></span>Working... (CPU model, ~10-30 s per attempt)</span>
+    </div>
+
+    <div class="stepbar-wrap">
+      <div class="flow"><div class="flow-fill" id="flowFill"></div></div>
+      <ol class="stepbar" id="stepbar">
+        <li data-step="1"><span class="dot">1</span><span class="lbl">Email</span></li>
+        <li data-step="2"><span class="dot">2</span><span class="lbl">LLM</span></li>
+        <li data-step="3"><span class="dot">3</span><span class="lbl">Parse &amp; repair</span></li>
+        <li data-step="4"><span class="dot">4</span><span class="lbl">Validate</span></li>
+        <li data-step="5"><span class="dot">5</span><span class="lbl">Retry / fallback</span></li>
+        <li data-step="6"><span class="dot">6</span><span class="lbl">Booking</span></li>
+      </ol>
+      <div class="loopback" id="loopback">↩ errors sent back to the model</div>
+    </div>
+
+    <div class="demo-grid">
+      <article class="panel" id="p1">
+        <header><span class="num">1</span><h3>Messy email</h3><span class="chip-state"></span></header>
+        <div class="email-box" id="emailBox">
+          <div class="scanline"></div>
+          <div class="email-text" id="emailText">Pick an example above to start.</div>
+          <textarea id="emailInput" class="hidden" spellcheck="false" aria-label="Email text"></textarea>
+        </div>
+      </article>
+
+      <article class="panel" id="p6">
+        <header><span class="num">6</span><h3>Clean booking record</h3><span class="chip-state"></span></header>
+        <div class="booking" id="booking">
+          <div class="booking-status" id="bookingStatus">waiting</div>
+          <div class="booking-fields" id="bookingFields"></div>
+          <div class="stamp-big hidden" id="bookingStamp">REJECTED</div>
+        </div>
+      </article>
+
+      <article class="panel" id="p2">
+        <header><span class="num">2</span><h3>Model output</h3><span class="chip-state"></span></header>
+        <div id="llmOut" class="stack"><p class="muted">The model's raw answer is typed out here.</p></div>
+      </article>
+
+      <article class="panel" id="p3">
+        <header><span class="num">3</span><h3>Parse &amp; repair</h3><span class="chip-state"></span></header>
+        <div id="parseOut" class="stack"><p class="muted">Code fences, extra text, trailing commas and truncation are fixed here.</p></div>
+      </article>
+
+      <article class="panel" id="p4">
+        <header><span class="num">4</span><h3>Validate against the schema</h3><span class="chip-state"></span></header>
+        <div id="validateOut"><p class="muted">Every field gets a pass / fail stamp.</p></div>
+      </article>
+
+      <article class="panel" id="p5">
+        <header><span class="num">5</span><h3>Retry loop &amp; fallback</h3><span class="chip-state"></span></header>
+        <div class="loop-head"><span>Attempts</span><b id="attemptCount">0 / 3</b></div>
+        <div class="conveyor" id="conveyor"><div class="belt"></div><div class="crates" id="crates"></div></div>
+        <div id="loopNote" class="loop-note muted">Up to 2 retries. The validation errors are sent back to the model; if it still fails, rules take over.</div>
+      </article>
+
+      <article class="panel wide" id="p7">
+        <header><span class="num">{ }</span><h3>Schema → JSON produced</h3><span class="chip-state"></span></header>
+        <div class="schema-grid">
+          <div><div class="file-tag">extractor.py · Booking</div><pre class="code" id="schemaCode"></pre></div>
+          <div><div class="file-tag">final validated JSON</div><pre class="code" id="finalJson"><span class="muted">null</span></pre></div>
+        </div>
+      </article>
+    </div>
+
+    <details class="tech" id="tech">
+      <summary>Show technical details (prompt, raw outputs, feedback messages)</summary>
+      <div id="techBody"><p class="muted">Run an example first.</p></div>
+    </details>
+  </section>
+
+  <!-- 4. Results -->
+  <section class="section reveal" id="results">
+    <p class="eyebrow">Results</p>
+    <h2>Notebook evaluation (8 hand-written emails)</h2>
+    <p class="section-sub">From <code>structured_extraction.ipynb</code>, using the same emails and the same pipeline.</p>
+    <div class="stats" id="stats"></div>
+    <div class="charts">
+      <div class="panel chart-box"><h3>Status per email</h3><canvas id="chartStatus" height="220"></canvas></div>
+      <div class="panel chart-box"><h3>Model attempts per email</h3><canvas id="chartAttempts" height="220"></canvas></div>
+    </div>
+    <div class="panel table-wrap"><h3>Status table</h3><table id="resultTable"></table></div>
+    <div class="panel table-wrap"><h3>Hand-made broken outputs → parser / validator</h3><table id="parserTable"></table></div>
+    <div class="panel findings">
+      <h3>Key findings</h3>
+      <ul>
+        <li><b>All 7 booking emails gave valid JSON on the first try</b>, except one that needed a retry. Greedy decoding plus one example keeps the format stable.</li>
+        <li><b>Validation checks structure, not truth.</b> For the email without a guest count, the model guessed <code>2</code>, and that passes the schema.</li>
+        <li><b>Retries fix format, not content.</b> <code>"SUITE"</code> was "fixed" to <code>"unknown"</code>. When the model got swapped dates back as an error, it repeated them on both retries.</li>
+        <li><b>The parser repairs cheap failures for free.</b> Fences, chatter, trailing commas, <code>None</code> and truncation are fixed without another model call.</li>
+        <li><b>Spam is rejected explicitly</b> through <code>{"not_booking": true}</code> instead of an invented booking.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 5. How it works -->
+  <section class="section reveal" id="how">
+    <p class="eyebrow">How it works</p>
+    <h2>Parse → validate → retry → fallback</h2>
+    <div class="flowchart">
+      <div class="fc-row">
+        <div class="fc-box">Email</div><div class="fc-arrow"></div>
+        <div class="fc-box">Prompt<small>system + schema + 1 example</small></div><div class="fc-arrow"></div>
+        <div class="fc-box accent">Qwen2.5-0.5B<small>CPU, greedy, 200 tokens</small></div><div class="fc-arrow"></div>
+        <div class="fc-box">Parse &amp; repair<small>first {...}, fix commas / None</small></div><div class="fc-arrow"></div>
+        <div class="fc-box">Pydantic<small>types, ranges, date order</small></div><div class="fc-arrow ok"></div>
+        <div class="fc-box ok">Booking<small>ok / ok_after_retry</small></div>
+      </div>
+      <div class="fc-row fc-low">
+        <div class="fc-box warn">Retry ×2<small>errors fed back to the model</small></div><div class="fc-arrow warn"></div>
+        <div class="fc-box warn">Rule-based fallback<small>regex: dates, email, guests, room</small></div><div class="fc-arrow"></div>
+        <div class="fc-box">fallback / failed</div>
+      </div>
+      <p class="fc-note">On a validation error the loop goes back to the model (amber). After 3 failed attempts the rules take over.</p>
+    </div>
+    <div class="code-grid" id="codeGrid"></div>
+  </section>
+
+  <!-- 6. Limitations -->
+  <section class="section reveal" id="limits">
+    <p class="eyebrow">Honest limits</p>
+    <h2>Limitations</h2>
+    <ul class="limits">
+      <li>Only 8 hand-written emails were evaluated. This is a demo, not a benchmark.</li>
+      <li>The 0.5B model invents plausible values (a guest count, dates on retry) that pass the schema. There is no check that values actually appear in the email.</li>
+      <li>A retry can make things worse: it may blank a value (<code>"unknown"</code>) or copy the same mistake again.</li>
+      <li>The fallback regexes are English-only, assume DD/MM/YYYY, and resolve yearless dates against a fixed reference date (2026-10-31).</li>
+      <li>Each model call takes about 5-20 s on CPU, so a run with retries can take up to a minute.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <span>Built by <b>Krishna</b> · VoidMain internship, Task 6</span>
+  <a href="https://github.com/Krishna141414/llm-structured-extraction" target="_blank" rel="noopener">GitHub repo ↗</a>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="demo_data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
