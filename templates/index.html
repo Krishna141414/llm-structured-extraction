@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booking Extractor</title>
+<style>
+  :root { --bg:#0B1020; --panel:#141B33; --line:#24305A; --text:#E8ECF8; --muted:#8B95B8;
+          --blue:#4F7CFF; --pink:#FF3D81; --gold:#FFB020; --mint:#22D3B6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:28px 16px; }
+  h1 { margin:0 0 4px; font-size:24px; } p.sub { margin:0 0 20px; color:var(--muted); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:800px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; min-width:0; }
+  h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  textarea { width:100%; height:220px; background:var(--bg); color:var(--text); border:1px solid var(--line);
+             border-radius:8px; padding:10px; font:14px/1.5 ui-monospace, monospace; resize:vertical; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
+  button { border:1px solid var(--line); background:transparent; color:var(--text); border-radius:8px;
+           padding:7px 12px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--blue); }
+  #go { background:var(--blue); border-color:var(--blue); font-weight:600; padding:9px 20px; }
+  #go:disabled { opacity:.5; cursor:wait; }
+  label, select { color:var(--muted); font:inherit; }
+  select { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:4px; color:var(--text); }
+  pre { margin:0; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px;
+        white-space:pre-wrap; word-break:break-word; font:13px/1.5 ui-monospace, monospace; max-height:320px; overflow:auto; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:700; font-size:13px; color:var(--bg); }
+  .ok { background:var(--mint); } .ok_after_retry { background:var(--blue); color:#fff; }
+  .fallback { background:var(--gold); } .failed { background:var(--pink); color:#fff; }
+  .meta { color:var(--muted); margin-left:10px; }
+  .attempt { color:var(--blue); font-size:12px; margin:8px 0 4px; }
+  ul.err { margin:0; padding-left:18px; color:var(--pink); font-size:13px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Booking Extractor</h1>
+  <p class="sub">Email → JSON with Qwen2.5-0.5B, Pydantic validation, retries and a rule-based fallback. Runs locally.</p>
+  <div class="grid">
+    <section class="card">
+      <h2>Email</h2>
+      <div class="row" id="samples">
+        {% for name in samples %}<button data-name="{{ name }}">{{ name }}</button>{% endfor %}
+      </div>
+      <textarea id="email" placeholder="Paste a booking request email..."></textarea>
+      <div class="row">
+        <label><input type="checkbox" id="sim"> Simulate broken output</label>
+        <select id="simmode" disabled>
+          <option value="retry">first answer broken → retry</option>
+          <option value="fallback">all answers broken → fallback</option>
+        </select>
+      </div>
+      <div class="row"><button id="go">Extract</button><span id="msg" class="meta"></span></div>
+    </section>
+    <section class="card" id="out">
+      <h2>Result</h2>
+      <p class="meta" id="empty" style="margin:0">Pick a sample or paste an email, then press Extract.</p>
+      <div id="res" class="hidden">
+        <div><span id="badge" class="badge"></span><span id="attempts" class="meta"></span></div>
+        <h2 style="margin-top:14px">Final JSON</h2><pre id="json"></pre>
+        <div id="errbox"><h2 style="margin-top:14px">Validation errors</h2><ul class="err" id="errors"></ul></div>
+      </div>
+    </section>
+  </div>
+  <section class="card hidden" id="rawcard" style="margin-top:16px">
+    <h2>Raw model output</h2><div id="raw"></div>
+  </section>
+</main>
+<script>
+  const SAMPLES = {{ samples | tojson }};
+  const $ = id => document.getElementById(id);
+  document.querySelectorAll("#samples button").forEach(b => b.onclick = () => $("email").value = SAMPLES[b.dataset.name]);
+  $("sim").onchange = () => $("simmode").disabled = !$("sim").checked;
+
+  $("go").onclick = async () => {
+    $("go").disabled = true; $("msg").textContent = "Running model on CPU (~10-60 s)...";
+    try {
+      const res = await fetch("/extract", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: $("email").value, simulate: $("sim").checked ? $("simmode").value : null }) });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error);
+      show(r); $("msg").textContent = "";
+    } catch (e) { $("msg").textContent = "Error: " + e.message; }
+    $("go").disabled = false;
+  };
+
+  function show(r) {
+    $("empty").classList.add("hidden"); $("res").classList.remove("hidden"); $("rawcard").classList.remove("hidden");
+    $("badge").textContent = r.status; $("badge").className = "badge " + r.status;
+    $("attempts").textContent = r.attempts + (r.attempts === 1 ? " attempt" : " attempts");
+    $("json").textContent = JSON.stringify(r.data, null, 2);
+    $("errbox").classList.toggle("hidden", !r.errors.length);
+    $("errors").replaceChildren(...r.errors.map(e => Object.assign(document.createElement("li"), { textContent: e })));
+    $("raw").replaceChildren(...r.raw_outputs.flatMap((t, i) => [
+      Object.assign(document.createElement("div"), { className: "attempt", textContent: "Attempt " + (i + 1) }),
+      Object.assign(document.createElement("pre"), { textContent: t })]));
+  }
+</script>
+</body>
+</html>

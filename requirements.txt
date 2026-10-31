@@ -8,3 +8,4 @@ pydantic==2.14.2
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.15.0+cpu
 transformers==5.22.1
+Flask==3.1.3
